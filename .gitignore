@@ -91,3 +91,6 @@ stream/*
 
 dist
 __debug_bin
+
+# Fuzz output
+evm.out
