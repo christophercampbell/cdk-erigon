@@ -8,15 +8,17 @@ import (
 	"strings"
 	"testing"
 
-	cdkchain "github.com/gateway-fm/cdk-erigon-lib/chain"
 	"github.com/gateway-fm/cdk-erigon-lib/common"
 	"github.com/gateway-fm/cdk-erigon-lib/kv/memdb"
 	"github.com/holiman/uint256"
-	"github.com/ledgerwatch/erigon/chain"
+	"github.com/ledgerwatch/erigon/core"
 	"github.com/ledgerwatch/erigon/core/state"
+
+	//"github.com/ledgerwatch/erigon/core/state"
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/vm"
-	"github.com/ledgerwatch/erigon/core/vm/runtime"
+	"github.com/ledgerwatch/erigon/core/vm/evmtypes"
+	"github.com/ledgerwatch/erigon/params"
 	"github.com/ledgerwatch/erigon/zkevm/hex"
 )
 
@@ -254,77 +256,23 @@ func getTestEOAs() []common.Address {
 	}
 }
 
-var AllDevChainProtocolChanges = &chain.Config{
-	ChainID:        big.NewInt(1337),
-	HomesteadBlock: big.NewInt(0),
-	//EIP150Block:                   big.NewInt(0),
-	//EIP155Block:                   big.NewInt(0),
-	//EIP158Block:                   big.NewInt(0),
-	ByzantiumBlock:      big.NewInt(0),
-	ConstantinopleBlock: big.NewInt(0),
-	PetersburgBlock:     big.NewInt(0),
-	IstanbulBlock:       big.NewInt(0),
-	MuirGlacierBlock:    big.NewInt(0),
-	BerlinBlock:         big.NewInt(0),
-	LondonBlock:         big.NewInt(0),
-	ArrowGlacierBlock:   big.NewInt(0),
-	GrayGlacierBlock:    big.NewInt(0),
-	//ShanghaiTime:                  newUint64(0),
-	//CancunTime:                    newUint64(0),
-	TerminalTotalDifficulty:       big.NewInt(0),
-	TerminalTotalDifficultyPassed: true,
-}
-
-var AllEthashProtocolChanges = &chain.Config{
-	ChainID:        big.NewInt(1337),
-	HomesteadBlock: big.NewInt(0),
-	DAOForkBlock:   nil,
-	//DAOForkSupport:                false,
-	//EIP150Block:                   big.NewInt(0),
-	//EIP155Block:                   big.NewInt(0),
-	//EIP158Block:                   big.NewInt(0),
-	ByzantiumBlock:      big.NewInt(0),
-	ConstantinopleBlock: big.NewInt(0),
-	PetersburgBlock:     big.NewInt(0),
-	IstanbulBlock:       big.NewInt(0),
-	MuirGlacierBlock:    big.NewInt(0),
-	BerlinBlock:         big.NewInt(0),
-	LondonBlock:         big.NewInt(0),
-	ArrowGlacierBlock:   big.NewInt(0),
-	GrayGlacierBlock:    big.NewInt(0),
-	MergeNetsplitBlock:  nil,
-	ShanghaiTime:        nil,
-	CancunTime:          nil,
-	PragueTime:          nil,
-	//VerkleTime:                  nil,
-	TerminalTotalDifficulty:       nil,
-	TerminalTotalDifficultyPassed: true,
-	Ethash:                        new(cdkchain.EthashConfig),
-	Clique:                        nil,
-}
-
 func runEVM(t *testing.T, inputSender, inputReceiver, inputCode, inputInput []byte, initialGas, inputPrice, inputValue uint64, inputCreateContract bool) error {
 	var (
-		// tracer      *tracing.Hooks
-		statedb     *state.IntraBlockState
-		chainConfig *chain.Config
-		sender      = common.BytesToAddress(inputSender)
-		receiver    = common.BytesToAddress(inputReceiver)
-		// preimages   = false
-		// blobHashes  []common.Hash  // TODO (MariusVanDerWijden) implement blob hashes in state tests
-		// blobBaseFee = new(big.Int) // TODO (MariusVanDerWijden) implement blob fee in state tests
+		ibs      *state.IntraBlockState
+		sender   = common.BytesToAddress(inputSender)
+		receiver = common.BytesToAddress(inputReceiver)
 	)
 
-	genesisConfig := new(types.Genesis)
-	genesisConfig.GasLimit = initialGas
-	genesisConfig.Config = AllDevChainProtocolChanges
-	genesisConfig.Alloc = getTestAllocs()
-
-	chainConfig = genesisConfig.Config
-
 	_, tx := memdb.NewTestTx(t)
-	statedb = state.New(state.NewDbStateReader(tx))
-	statedb.CreateAccount(sender, false)
+	ibs = state.New(state.NewDbStateReader(tx))
+	ibs.CreateAccount(sender, false)
+
+	blockCtx := evmtypes.BlockContext{
+		CanTransfer: core.CanTransfer,
+		Transfer:    core.Transfer,
+	}
+
+	evm := vm.NewEVM(blockCtx, evmtypes.TxContext{}, ibs, params.TestChainConfig, vm.Config{})
 
 	var code []byte
 	var hexcode []byte
@@ -342,29 +290,6 @@ func runEVM(t *testing.T, inputSender, inputReceiver, inputCode, inputInput []by
 	}
 	code = common.FromHex(hexStr)
 
-	runtimeConfig := runtime.Config{
-		Origin:      sender,
-		State:       statedb,
-		GasLimit:    initialGas,
-		GasPrice:    uint256.NewInt(inputPrice),
-		Value:       uint256.NewInt(inputValue),
-		Difficulty:  genesisConfig.Difficulty,
-		Time:        big.NewInt(int64(genesisConfig.Timestamp)),
-		Coinbase:    genesisConfig.Coinbase,
-		BlockNumber: new(big.Int).SetUint64(genesisConfig.Number),
-		//BlobHashes:  blobHashes,
-		//BlobBaseFee: blobBaseFee,
-		EVMConfig: vm.Config{
-			Tracer: nil,
-		},
-	}
-
-	if chainConfig != nil {
-		runtimeConfig.ChainConfig = chainConfig
-	} else {
-		runtimeConfig.ChainConfig = AllEthashProtocolChanges
-	}
-
 	var hexInput []byte
 	hexInput = inputInput
 	hexInput = bytes.TrimSpace(hexInput)
@@ -381,19 +306,22 @@ func runEVM(t *testing.T, inputSender, inputReceiver, inputCode, inputInput []by
 	input := common.FromHex(x)
 
 	var execFunc func() ([]byte, uint64, error)
+
 	// Create or call
 	if inputCreateContract {
 		input = append(code, input...)
 		execFunc = func() ([]byte, uint64, error) {
-			output, _, gasLeft, err := runtime.Create(input, &runtimeConfig, 0 /*blockNr is ignored*/)
+			ar := vm.AccountRef(sender)
+			output, _, gasLeft, err := evm.Create(ar, code, initialGas, uint256.NewInt(inputValue), inputPrice)
 			return output, gasLeft, err
 		}
 	} else {
 		if len(code) > 0 {
-			statedb.SetCode(receiver, code)
+			ibs.SetCode(receiver, code)
 		}
 		execFunc = func() ([]byte, uint64, error) {
-			return runtime.Call(receiver, input, &runtimeConfig)
+			rec := vm.AccountRef(receiver)
+			return evm.Call(rec, sender, input, inputPrice, uint256.NewInt(inputValue), false, initialGas)
 		}
 	}
 
