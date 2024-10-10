@@ -13,7 +13,6 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/ledgerwatch/erigon/core"
 	"github.com/ledgerwatch/erigon/core/state"
-
 	//"github.com/ledgerwatch/erigon/core/state"
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/vm"
@@ -272,7 +271,31 @@ func runEVM(t *testing.T, inputSender, inputReceiver, inputCode, inputInput []by
 		Transfer:    core.Transfer,
 	}
 
-	evm := vm.NewEVM(blockCtx, evmtypes.TxContext{}, ibs, params.TestChainConfig, vm.Config{})
+	txCtx := evmtypes.TxContext{
+		TxHash:            common.Hash{},
+		Origin:            common.Address{},
+		GasPrice:          nil,
+		DataHashes:        nil,
+		Txn:               nil,
+		CumulativeGasUsed: nil,
+		BlockNum:          0,
+	}
+
+	cfg := vm.Config{
+		Debug:         false,
+		Tracer:        nil,
+		NoRecursion:   false,
+		NoBaseFee:     false,
+		SkipAnalysis:  false,
+		TraceJumpDest: false,
+		NoReceipts:    false,
+		ReadOnly:      false,
+		StatelessExec: false,
+		RestoreState:  false,
+		ExtraEips:     nil,
+	}
+
+	evm := vm.NewEVM(blockCtx, txCtx, ibs, params.TestChainConfig, cfg)
 
 	var code []byte
 	var hexcode []byte
@@ -320,8 +343,8 @@ func runEVM(t *testing.T, inputSender, inputReceiver, inputCode, inputInput []by
 			ibs.SetCode(receiver, code)
 		}
 		execFunc = func() ([]byte, uint64, error) {
-			rec := vm.AccountRef(receiver)
-			return evm.Call(rec, sender, input, inputPrice, uint256.NewInt(inputValue), false, initialGas)
+			ar := vm.AccountRef(sender)
+			return evm.Call(ar, receiver, input, initialGas, uint256.NewInt(inputValue), true, inputPrice)
 		}
 	}
 
